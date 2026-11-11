@@ -383,8 +383,10 @@ export function ReportsPage() {
         URL.revokeObjectURL(url);
         toast.success('Download started');
       } else {
+        // Incident documents download that one incident's detailed report.
         const blob = await reportsApi.exportPdf(accessToken, {
-          reportType: doc.reportType || 'incident',
+          reportType: 'incident',
+          ...(doc.incidentId ? { incidentId: doc.incidentId } : {}),
         });
         await downloadBlob(blob, `${doc.incidentDisplayId || 'report'}.pdf`);
         toast.success('Report downloaded');

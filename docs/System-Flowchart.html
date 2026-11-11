@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>System Flowcharts: Brigada Onse SVFAR</title>
+<style>
+body{font-family:'Times New Roman',serif;margin:24px;color:#111;background:#fff}
+h1{font-size:22px;margin-bottom:4px} h2{font-size:17px;margin-top:28px;border-bottom:1px solid #ccc;padding-bottom:4px}
+section{break-inside:avoid;margin-bottom:24px} .mermaid{background:#fff;text-align:center}
+@media print{body{margin:12px} h2{break-after:avoid}}
+</style></head><body>
+<h1>System Flowcharts: GIS-Based Emergency Dispatch System (Brigada Onse SVFAR)</h1>
+<p>Generated from the flowcharts in System-Flowchart.md.</p>
+<section><h2>1. Overall System Flow</h2><pre class="mermaid">
+flowchart TD
+    A([Start: user opens the web app]) --> B{Has an account?}
+    B -- No --> C[Register with mobile, email, password, consent]
+    C --> D[Email verification code sent through Brevo]
+    D --> E[Enter the 6-digit code]
+    E --> F{Code correct and not expired?}
+    F -- No --> E
+    F -- Yes --> G[Account verified]
+    B -- Yes --> H[Sign in]
+    G --> H
+    H --> I{Role?}
+    I -- Citizen --> CIT[Citizen screens]
+    I -- Responder --> RES[Responder screens]
+    I -- Dispatcher --> DIS[Dispatch Center]
+    I -- Administrator --> ADM[Administration]
+    CIT --> Z([Session continues until sign out])
+    RES --> Z
+    DIS --> Z
+    ADM --> Z
+</pre></section>
+<section><h2>2. Citizen: Send SOS and Track the Request</h2><pre class="mermaid">
+flowchart TD
+    A([Citizen opens SOS screen]) --> B[Location detected from GPS]
+    B --> C[Enter description and optional photo]
+    C --> D{Internet connected?}
+    D -- No --> E[Saved in offline queue on the device]
+    E --> F[Sent automatically when connection returns]
+    D -- Yes --> G[SOS sent to server]
+    F --> G
+    G --> H[Incident created with status Pending Verification]
+    H --> I[Citizen sees live status]
+    I --> J{What does the citizen do?}
+    J -- Adds information or scene photo --> K[Sent to dispatch while the request is open]
+    K --> I
+    J -- Cancels an open request --> M[Status becomes Cancelled]
+    J -- Request is Resolved or Closed --> N[Action buttons hidden]
+    J -- Waits --> I
+</pre></section>
+<section><h2>3. Dispatcher: Triage, Verify, and Assign</h2><pre class="mermaid">
+flowchart TD
+    A([Dispatcher signs in]) --> B[Live incident queue and map]
+    B --> C[Select an incident]
+    C --> D[Verify Call: incident details panel opens]
+    D --> E{Status allows verification?}
+    E -- Yes --> F[Verify call and open for dispatch]
+    E -- No --> G[Details only]
+    F --> H[Assign Unit: nearby units listed by distance and GPS freshness]
+    G --> H
+    H --> I[Choose unit and confirm dispatch]
+    I --> J[Responder notified]
+    J --> K{Responder response}
+    K -- Accepts --> L[Incident Assigned / Accepted]
+    K -- Declines --> H
+    L --> M[Other actions: notify team, false alarm, cancel, reopen]
+    M --> N[Timeline and report kept]
+</pre></section>
+<section><h2>4. Responder: Duty, Assignment, and Navigation</h2><pre class="mermaid">
+flowchart TD
+    A([Responder signs in]) --> B[Time in]
+    B --> C[Status Available]
+    C --> D[GPS shared about every second]
+    D --> E{Assignment received?}
+    E -- No --> D
+    E -- Yes --> F[Accept or decline]
+    F -- Decline --> C
+    F -- Accept --> G[Navigate: route from GPS to scene]
+    G --> H[Status En Route]
+    H --> I[Status On Scene]
+    I --> J{Patient transported?}
+    J -- Yes --> K[Transporting, then At Hospital]
+    J -- No --> L[Resolved]
+    K --> L
+    L --> M[Submit incident report]
+    M --> N[Status Available]
+    N --> O{End of shift?}
+    O -- No --> D
+    O -- Yes --> P[Time out: blocked while on an assignment]
+    P --> Q[Status Off Duty]
+</pre></section>
+<section><h2>5. Incident Status Lifecycle</h2><pre class="mermaid">
+stateDiagram-v2
+    [*] --> PendingVerification
+    PendingVerification --> Verified
+    PendingVerification --> Validating
+    PendingVerification --> FalseAlarm
+    PendingVerification --> Cancelled
+    Validating --> Verified
+    Validating --> Acknowledged
+    Verified --> Open
+    Verified --> Dispatching
+    Acknowledged --> Open
+    Open --> Assigned
+    Open --> Dispatched
+    Dispatching --> Assigned
+    Assigned --> Dispatched
+    Assigned --> EnRoute
+    Dispatched --> EnRoute
+    EnRoute --> OnScene
+    OnScene --> Transporting
+    OnScene --> InProgress
+    OnScene --> Resolved
+    Transporting --> AtHospital
+    AtHospital --> Resolved
+    InProgress --> Resolved
+    Resolved --> Closed
+    Resolved --> Reopened
+    Closed --> Reopened
+    Cancelled --> Reopened
+    FalseAlarm --> Closed
+    Reopened --> Open
+    Reopened --> Dispatching
+</pre></section>
+<section><h2>6. Administrator: Settings and Records</h2><pre class="mermaid">
+flowchart TD
+    A([Administrator signs in]) --> B{Task?}
+    B -- Settings --> C[General, Preferences, Map, Incident, Security, Audit]
+    B -- Deletion requests --> D[List of citizen requests]
+    D --> E{Action}
+    E -- Process --> F[Personal details removed, sign-in disabled, audit entry]
+    E -- Dismiss --> G[Request closed, account stays active]
+    B -- Reports --> H[Choose report type and period]
+    H --> I{Format}
+    I -- PDF --> J[Full report, one block per incident]
+    I -- CSV or Excel --> K[One row per incident with all fields]
+    B -- Personnel --> L[Roster, duty status, attendance]
+</pre></section>
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs';
+mermaid.initialize({ startOnLoad: true, theme: 'default', flowchart:{ useMaxWidth:true }, securityLevel:'strict' });
+</script></body></html>

@@ -475,11 +475,12 @@ export const reportsApi = {
     }
     return res.blob();
   },
-  exportPdf: async (token: string, params?: { reportType?: string; from?: string; to?: string }) => {
+  exportPdf: async (token: string, params?: { reportType?: string; from?: string; to?: string; incidentId?: string }) => {
     const q = new URLSearchParams({ format: 'pdf' });
     if (params?.reportType) q.set('reportType', params.reportType);
     if (params?.from) q.set('from', params.from);
     if (params?.to) q.set('to', params.to);
+    if (params?.incidentId) q.set('incidentId', params.incidentId);
     const res = await fetch(`${API_URL}/reports/export?${q}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -567,6 +568,11 @@ export type LeaveRequest = {
 };
 
 export const attendanceApi = {
+  status: (token: string) =>
+    api<{ success: boolean; data: { timedIn: boolean; checkInTime: string | null; checkOutTime: string | null; dutyStatus: string } }>(
+      '/attendance/me/status',
+      { token }
+    ),
   list: (token: string, date?: string) => {
     const q = date ? `?date=${encodeURIComponent(date)}` : '';
     return api<{ success: boolean; data: AttendanceRecord[] }>(`/attendance${q}`, { token });

@@ -109,7 +109,7 @@ function dutyLabel(p: PersonnelMember): DutyLabel {
     return 'EN ROUTE';
   }
   if (avail.includes('patrol') || assign.includes('patrol')) return 'PATROL';
-  if (avail.includes('off') || avail.includes('unavailable') || avail.includes('offline')) return 'OFF DUTY';
+  if (avail.includes('out of service') || avail.includes('time out') || avail.includes('timed out') || avail.includes('off') || avail.includes('unavailable') || avail.includes('offline')) return 'OFF DUTY';
   if (avail.includes('available') || avail.includes('on duty') || avail.includes('standby') || avail.includes('ready')) {
     return 'AVAILABLE';
   }
@@ -197,7 +197,7 @@ export function PersonnelPage() {
     queryKey: ['personnel'],
     queryFn: () => personnelApi.list(accessToken!),
     enabled: !!accessToken,
-    refetchInterval: LIVE.warmMs,
+    refetchInterval: LIVE.hotMs,
   });
 
   const attendanceQuery = useQuery({

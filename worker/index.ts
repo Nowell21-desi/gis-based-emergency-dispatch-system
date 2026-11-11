@@ -2519,34 +2519,83 @@ app.patch('/api/leave-requests/:id', auth, requirePerm('attendance:manage'), asy
   return c.json({ success: true });
 });
 
+// Time in / Time out: keeps today's attendance record and the responder's duty status in step.
+const ASSIGNMENT_STATUSES_BLOCKING_TIME_OUT = ['Dispatched', 'Assigned', 'Accepted', 'En Route', 'On Scene', 'Transporting'];
+
+app.get('/api/attendance/me/status', auth, requirePerm('responder:operations'), async (c) => {
+  const responder = await c.env.DB.prepare('SELECT id, availability_status AS dutyStatus FROM responders WHERE user_id = ?')
+    .bind(c.get('user').userId)
+    .first<{ id: string; dutyStatus: string }>();
+  if (!responder) return jsonError(c, 403, 'Responder profile required');
+  const row = await c.env.DB.prepare(
+    'SELECT check_in_time AS checkInTime, check_out_time AS checkOutTime FROM attendance WHERE responder_id = ? AND date = ?'
+  )
+    .bind(responder.id, manilaYmd())
+    .first<{ checkInTime: string | null; checkOutTime: string | null }>();
+  const timedIn = Boolean(row?.checkInTime && !row?.checkOutTime);
+  return c.json({
+    success: true,
+    data: {
+      timedIn,
+      checkInTime: row?.checkInTime ?? null,
+      checkOutTime: row?.checkOutTime ?? null,
+      dutyStatus: responder.dutyStatus,
+    },
+  });
+});
+
 app.post('/api/attendance/check-in', auth, requirePerm('responder:operations'), async (c) => {
   const responder = await c.env.DB.prepare('SELECT id FROM responders WHERE user_id = ?')
     .bind(c.get('user').userId)
     .first<{ id: string }>();
   if (!responder) return jsonError(c, 403, 'Responder profile required');
   const today = manilaYmd();
-  const existing = await c.env.DB.prepare('SELECT id FROM attendance WHERE responder_id = ? AND date = ?')
-    .bind(responder.id, today)
-    .first();
-  if (existing) return jsonError(c, 400, 'Already checked in today');
-  await c.env.DB.prepare(
-    'INSERT INTO attendance (id, responder_id, date, check_in_time, status) VALUES (?, ?, ?, datetime(\'now\'), ?)'
+  const existing = await c.env.DB.prepare(
+    'SELECT id, check_in_time AS checkInTime, check_out_time AS checkOutTime FROM attendance WHERE responder_id = ? AND date = ?'
   )
-    .bind(id(), responder.id, today, 'On Duty')
+    .bind(responder.id, today)
+    .first<{ id: string; checkInTime: string | null; checkOutTime: string | null }>();
+  if (existing && existing.checkInTime && !existing.checkOutTime) {
+    return jsonError(c, 400, 'Already timed in');
+  }
+  if (existing) {
+    // Timed out earlier today: reopen today's record
+    await c.env.DB.prepare("UPDATE attendance SET check_in_time = datetime('now'), check_out_time = NULL, status = 'On Duty' WHERE id = ?")
+      .bind(existing.id)
+      .run();
+  } else {
+    await c.env.DB.prepare("INSERT INTO attendance (id, responder_id, date, check_in_time, status) VALUES (?, ?, ?, datetime('now'), 'On Duty')")
+      .bind(id(), responder.id, today)
+      .run();
+  }
+  await c.env.DB.prepare(
+    "UPDATE responders SET availability_status = 'Available', operational_status = 'Available' WHERE id = ? AND availability_status IN ('Off Duty', 'Out of Service')"
+  )
+    .bind(responder.id)
     .run();
   return c.json({ success: true });
 });
 
 app.post('/api/attendance/check-out', auth, requirePerm('responder:operations'), async (c) => {
-  const responder = await c.env.DB.prepare('SELECT id FROM responders WHERE user_id = ?')
+  const responder = await c.env.DB.prepare('SELECT id, availability_status AS dutyStatus FROM responders WHERE user_id = ?')
     .bind(c.get('user').userId)
-    .first<{ id: string }>();
+    .first<{ id: string; dutyStatus: string }>();
   if (!responder) return jsonError(c, 403, 'Responder profile required');
+  if (ASSIGNMENT_STATUSES_BLOCKING_TIME_OUT.includes(responder.dutyStatus)) {
+    return jsonError(c, 400, 'Finish the current assignment before timing out');
+  }
   const today = manilaYmd();
-  await c.env.DB.prepare(
-    "UPDATE attendance SET check_out_time = datetime('now'), status = 'Off Duty' WHERE responder_id = ? AND date = ?"
+  const open = await c.env.DB.prepare(
+    'SELECT id FROM attendance WHERE responder_id = ? AND date = ? AND check_in_time IS NOT NULL AND check_out_time IS NULL'
   )
     .bind(responder.id, today)
+    .first<{ id: string }>();
+  if (!open) return jsonError(c, 400, 'You are not timed in');
+  await c.env.DB.prepare("UPDATE attendance SET check_out_time = datetime('now'), status = 'Off Duty' WHERE id = ?")
+    .bind(open.id)
+    .run();
+  await c.env.DB.prepare("UPDATE responders SET availability_status = 'Off Duty', operational_status = 'Off Duty' WHERE id = ?")
+    .bind(responder.id)
     .run();
   return c.json({ success: true });
 });
@@ -3113,17 +3162,122 @@ app.get('/api/reports/export', auth, requirePerm('reports:export'), async (c) =>
       sql += " AND (lower(t.type_name) LIKE '%transport%' OR lower(t.type_name) LIKE '%conduction%' OR lower(t.type_name) LIKE '%medical%' OR lower(t.type_name) LIKE '%ambulance%')";
     }
     if (reportType === 'dispatch') sql += " AND i.status NOT IN ('Closed', 'Cancelled', 'False Alarm', 'Duplicate')";
-    sql += ' ORDER BY i.reported_at DESC LIMIT 80';
+    // Single-incident report (opened from the Documents page)
+    const incidentId = c.req.query('incidentId');
+    if (incidentId) {
+      sql += ' AND i.id = ?';
+      binds.push(incidentId);
+    }
+    sql += ' ORDER BY i.reported_at DESC LIMIT 200';
     const { results } = binds.length
       ? await c.env.DB.prepare(sql).bind(...binds).all()
       : await c.env.DB.prepare(sql).all();
     if (!results.length) return jsonError(c, 404, 'No records available to export');
-    columns = ['ID', 'Type', 'Priority', 'Status', 'Reported'];
-    tableRows = results.map((r) => {
-      const i = r as Record<string, string>;
-      return [i.display_id, i.type_name, i.priority_level, i.status, i.reported_at];
-    });
-    linesBody = tableRows.map((r) => r.join(' | '));
+    const incidentRows = results as Record<string, string | number | null>[];
+
+    // Assigned units for all incidents in the report (batched, not one query per row)
+    const unitsById = new Map<string, string[]>();
+    const ids = incidentRows.map((r) => String(r.id));
+    for (let s = 0; s < ids.length; s += 50) {
+      const chunk = ids.slice(s, s + 50);
+      const { results: asg } = await c.env.DB.prepare(
+        `SELECT a.incident_id, COALESCE(r.callsign, 'Unit') AS callsign, a.assignment_status
+           FROM assignments a JOIN responders r ON r.id = a.responder_id
+          WHERE a.incident_id IN (${chunk.map(() => '?').join(',')})`
+      )
+        .bind(...chunk)
+        .all();
+      for (const a of asg as Record<string, string>[]) {
+        const list = unitsById.get(a.incident_id) ?? [];
+        list.push(`${a.callsign} (${a.assignment_status})`);
+        unitsById.set(a.incident_id, list);
+      }
+    }
+    const fmt = (v: unknown) => (v == null || v === '' ? '-' : String(v));
+    const unitsText = (incidentId: string) => (unitsById.get(incidentId) ?? []).join(', ') || 'None';
+    const coords = (r: Record<string, string | number | null>) =>
+      r.latitude != null && r.longitude != null ? `${Number(r.latitude).toFixed(5)}, ${Number(r.longitude).toFixed(5)}` : '-';
+
+    if (format === 'pdf') {
+      // One block per incident: every field on its own line, long descriptions split so nothing is cut off.
+      columns = ['Field', 'Value'];
+      tableRows = [];
+      for (const i of incidentRows) {
+        tableRows.push([fmt(i.display_id), `${fmt(i.type_name)} · ${fmt(i.status)}`]);
+        const fields: [string, string][] = [
+          ['Priority', fmt(i.priority_level)],
+          ['Caller name', fmt(i.caller_name ?? i.reporter_name)],
+          ['Caller phone', fmt(i.caller_phone ?? i.reporter_phone)],
+          ['Reporter email', fmt(i.reporter_email)],
+          ['Location', fmt(i.address_text)],
+          ['Landmark', fmt(i.landmark)],
+          ['Coordinates', coords(i)],
+          ['Reported', fmt(i.reported_at)],
+          ['Verified', fmt(i.verified_at)],
+          ['Dispatched', fmt(i.dispatched_at)],
+          ['En route', fmt(i.enroute_at)],
+          ['On scene', fmt(i.onscene_at)],
+          ['Resolved', fmt(i.resolved_at)],
+          ['Closed', fmt(i.closed_at)],
+          ['Assigned units', unitsText(String(i.id))],
+          ['Cancel reason', fmt(i.cancel_reason)],
+        ];
+        for (const [label, value] of fields) tableRows.push([label, value]);
+        const desc = String(i.description ?? '').trim() || '-';
+        for (let p = 0; p < desc.length; p += 75) {
+          tableRows.push([p === 0 ? 'Description' : '', desc.slice(p, p + 75)]);
+        }
+        tableRows.push(['', '']);
+      }
+      linesBody = tableRows.map((r) => r.join(' | '));
+    } else {
+      // Spreadsheet / CSV: one wide row per incident, every field in its own column.
+      columns = [
+        'ID',
+        'Type',
+        'Priority',
+        'Status',
+        'Caller name',
+        'Caller phone',
+        'Reporter email',
+        'Location',
+        'Landmark',
+        'Coordinates',
+        'Reported',
+        'Verified',
+        'Dispatched',
+        'En route',
+        'On scene',
+        'Resolved',
+        'Closed',
+        'Assigned units',
+        'Cancel reason',
+        'Description',
+      ];
+      tableRows = incidentRows.map((i) => [
+        fmt(i.display_id),
+        fmt(i.type_name),
+        fmt(i.priority_level),
+        fmt(i.status),
+        fmt(i.caller_name ?? i.reporter_name),
+        fmt(i.caller_phone ?? i.reporter_phone),
+        fmt(i.reporter_email),
+        fmt(i.address_text),
+        fmt(i.landmark),
+        coords(i),
+        fmt(i.reported_at),
+        fmt(i.verified_at),
+        fmt(i.dispatched_at),
+        fmt(i.enroute_at),
+        fmt(i.onscene_at),
+        fmt(i.resolved_at),
+        fmt(i.closed_at),
+        unitsText(String(i.id)),
+        fmt(i.cancel_reason),
+        String(i.description ?? '').trim() || '-',
+      ]);
+      linesBody = tableRows.map((r) => r.join(' | '));
+    }
   }
 
   if (format === 'xlsx' || format === 'excel') {

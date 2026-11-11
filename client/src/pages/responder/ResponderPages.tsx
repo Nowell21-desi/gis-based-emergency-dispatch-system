@@ -712,6 +712,13 @@ function DispatchCard({
 
 export function ResponderStatusPage() {
   const { accessToken } = useAuthStore();
+  const timeStatusQuery = useQuery({
+    queryKey: ['attendance-me'],
+    queryFn: () => attendanceApi.status(accessToken!),
+    enabled: !!accessToken,
+    refetchInterval: LIVE.hotMs,
+  });
+  const timedIn = Boolean(timeStatusQuery.data?.data?.timedIn);
   const meQuery = useQuery({
     queryKey: ['responder-me'],
     queryFn: () => respondersApi.me(accessToken!),
@@ -795,10 +802,20 @@ export function ResponderStatusPage() {
             ))}
           </div>
           <div className="flex gap-2">
-            <Button type="button" className="min-h-[48px] flex-1" onClick={() => check('in')}>
+            <Button
+              type="button"
+              variant={timedIn ? 'outline' : 'default'}
+              className={clsx('min-h-[48px] flex-1', !timedIn && 'bg-red-600 text-white hover:bg-red-500')}
+              onClick={() => check('in')}
+            >
               Time in
             </Button>
-            <Button type="button" variant="outline" className="min-h-[48px] flex-1" onClick={() => check('out')}>
+            <Button
+              type="button"
+              variant={timedIn ? 'default' : 'outline'}
+              className={clsx('min-h-[48px] flex-1', timedIn && 'bg-red-600 text-white hover:bg-red-500')}
+              onClick={() => check('out')}
+            >
               Time out
             </Button>
           </div>
@@ -1028,6 +1045,13 @@ export function ResponderMapPage() {
 
 export function ResponderProfilePage() {
   const { accessToken, user, refreshToken, setAuth } = useAuthStore();
+  const timeStatusQuery = useQuery({
+    queryKey: ['attendance-me'],
+    queryFn: () => attendanceApi.status(accessToken!),
+    enabled: !!accessToken,
+    refetchInterval: LIVE.hotMs,
+  });
+  const timedIn = Boolean(timeStatusQuery.data?.data?.timedIn);
   const queryClient = useQueryClient();
   const meQuery = useQuery({
     queryKey: ['responder-me'],
@@ -1259,8 +1283,22 @@ export function ResponderProfilePage() {
           ))}
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <Button type="button" className="min-h-[44px]" onClick={() => void check('in')}>Time in</Button>
-          <Button type="button" variant="outline" className="min-h-[44px]" onClick={() => void check('out')}>Time out</Button>
+          <Button
+            type="button"
+            variant={timedIn ? 'outline' : 'default'}
+            className={clsx('min-h-[44px]', !timedIn && 'bg-red-600 text-white hover:bg-red-500')}
+            onClick={() => void check('in')}
+          >
+            Time in
+          </Button>
+          <Button
+            type="button"
+            variant={timedIn ? 'default' : 'outline'}
+            className={clsx('min-h-[44px]', timedIn && 'bg-red-600 text-white hover:bg-red-500')}
+            onClick={() => void check('out')}
+          >
+            Time out
+          </Button>
         </div>
       </Section>
 

@@ -27,6 +27,7 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import { settingsApi } from '@/services/api';
 import { DeletionRequestsPanel } from '@/components/settings/DeletionRequestsPanel';
+import { IncidentSettingsPanel } from '@/components/settings/IncidentSettingsPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -502,7 +503,7 @@ export function SettingsPage() {
 
         {/* Main */}
         <section className="settings-area-main flex min-w-0 flex-col gap-4">
-          {(section === 'general' || section === 'preferences' || section === 'map') && (
+          {(section === 'general' || section === 'preferences') && (
             <div className="card overflow-hidden p-3 sm:p-4">
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-300">General Settings</h2>
               <div className="grid gap-6 lg:grid-cols-2">
@@ -566,36 +567,6 @@ export function SettingsPage() {
                   </Field>
                   <Field label="System Short Name">
                     <Input value={form.systemShortName} onChange={(e) => patch('systemShortName', e.target.value)} />
-                  </Field>
-                  <Field label="Default Map Center">
-                    <div className="flex gap-2">
-                      <Input
-                        value={`${form.mapCenterLat}, ${form.mapCenterLng}`}
-                        onChange={(e) => {
-                          const [lat, lng] = e.target.value.split(',').map((s) => s.trim());
-                          if (lat) patch('mapCenterLat', lat);
-                          if (lng) patch('mapCenterLng', lng);
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="btn-secondary shrink-0 px-3"
-                        title="Reset to Sun Valley center"
-                        onClick={() => {
-                          patch('mapCenterLat', String(SUN_VALLEY_CENTER.lat));
-                          patch('mapCenterLng', String(SUN_VALLEY_CENTER.lng));
-                        }}
-                      >
-                        <Crosshair className="h-4 w-4" aria-hidden />
-                      </button>
-                    </div>
-                  </Field>
-                  <Field label="Default Map Zoom Level">
-                    <SelectField
-                      value={form.mapZoom}
-                      onChange={(v) => patch('mapZoom', v)}
-                      options={['12', '13', '14', '15', '16']}
-                    />
                   </Field>
                   <Field label="Items Per Page">
                     <SelectField
@@ -685,14 +656,46 @@ export function SettingsPage() {
             </div>
           )}
 
-          {section === 'incidents' && (
+          {section === 'map' && (
             <div className="card overflow-hidden p-3 sm:p-4">
-              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-300">Incident Settings</h2>
-              <p className="text-sm text-ink-400">
-                Incident types, priorities, and SLA rules are managed in Dispatch and Incidents workflows. Use Save All Changes to persist preferences to the server.
-              </p>
+              <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-ink-300">Map Settings</h2>
+              <p className="mb-4 text-sm text-ink-400">Default map view used by Dispatch, Map Monitoring, and the responder map.</p>
+              <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Default Map Center">
+                    <div className="flex gap-2">
+                      <Input
+                        value={`${form.mapCenterLat}, ${form.mapCenterLng}`}
+                        onChange={(e) => {
+                          const [lat, lng] = e.target.value.split(',').map((s) => s.trim());
+                          if (lat) patch('mapCenterLat', lat);
+                          if (lng) patch('mapCenterLng', lng);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-secondary shrink-0 px-3"
+                        title="Reset to Sun Valley center"
+                        onClick={() => {
+                          patch('mapCenterLat', String(SUN_VALLEY_CENTER.lat));
+                          patch('mapCenterLng', String(SUN_VALLEY_CENTER.lng));
+                        }}
+                      >
+                        <Crosshair className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+                  </Field>
+                  <Field label="Default Map Zoom Level">
+                    <SelectField
+                      value={form.mapZoom}
+                      onChange={(v) => patch('mapZoom', v)}
+                      options={['12', '13', '14', '15', '16']}
+                    />
+                  </Field>
+              </div>
             </div>
           )}
+
+          {section === 'incidents' && <IncidentSettingsPanel token={accessToken} />}
 
           {section === 'backup' && (
             <div className="flex flex-col gap-4">
@@ -908,18 +911,6 @@ function SecurityToggles({
       label: 'Login Attempt Limit',
       note: 'Server rate-limits failed logins (fixed threshold).',
       enforced: true,
-    },
-    {
-      key: 'sessionMonitoring',
-      label: 'Session Monitoring',
-      note: 'Preference only — no separate monitoring service yet.',
-      enforced: false,
-    },
-    {
-      key: 'ipRestriction',
-      label: 'IP Restriction',
-      note: 'Preference only — not enforced on the Worker.',
-      enforced: false,
     },
   ];
   return (
